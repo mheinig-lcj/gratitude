@@ -1,0 +1,841 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#FBF6EE">
+<title>Gratitude Among Us</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&display=swap" rel="stylesheet">
+<script>
+  // ─────────────── Settings ───────────────
+  // Paste your Apps Script web app URL here (it ends in /exec).
+  // While this still says PASTE, the page runs in preview mode with sample posts.
+  const API_URL = 'PASTE_YOUR_WEB_APP_URL_HERE';
+
+  // The header photo is set in the Apps Script (HEADER_FILE_ID), so it stays private.
+
+  // Weekly ideas. They're only suggestions; any post is welcome.
+  const WEEKLY_IDEAS = [
+    'Something ordinary that made a day better',   // Nov 1–7
+    'Someone who showed up for you',                // Nov 8–14
+    'A place you love to be',                       // Nov 15–21
+    'A moment from this month you want to remember' // Nov 22–30
+  ];
+  const SLIDE_SECONDS = 8;
+  // ────────────────────────────────────────
+</script>
+<style>
+  :root {
+    --bg: #FBF6EE;
+    --card: #FFFFFF;
+    --ink: #2E2A26;
+    --muted: #6B6158;
+    --line: #E8DFD2;
+    --accent: #A9481A;
+    --accent-ink: #FFFFFF;
+    --accent-soft: #F6E4D6;
+    --green: #3F5A3A;
+    --heart: #C0392B;
+    --radius: 18px;
+    --shadow: 0 1px 2px rgba(46,42,38,.06), 0 6px 18px rgba(46,42,38,.06);
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 18px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    min-height: 100vh;
+  }
+  h1, h2, h3 { font-family: "Fraunces", Georgia, serif; font-weight: 650; line-height: 1.15; margin: 0; }
+  button, input, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 0 16px calc(32px + env(safe-area-inset-bottom)); }
+  .hidden { display: none !important; }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+    min-height: 56px; padding: 0 22px; border-radius: 999px; border: 0;
+    background: var(--accent); color: var(--accent-ink); font-weight: 650; font-size: 19px;
+  }
+  .btn:active { transform: scale(.98); }
+  .btn:disabled { opacity: .45; cursor: default; transform: none; }
+  .btn.block { width: 100%; }
+  .btn.quiet { background: var(--card); color: var(--ink); border: 1.5px solid var(--line); }
+  .btn.small { min-height: 44px; font-size: 16px; padding: 0 16px; }
+  .btn:focus-visible, .chip:focus-visible, .heart:focus-visible, input:focus-visible, textarea:focus-visible {
+    outline: 3px solid var(--green); outline-offset: 2px;
+  }
+
+  /* Preview ribbon */
+  .ribbon { background: var(--green); color: #fff; text-align: center; font-size: 14px; padding: 6px 12px; }
+
+  /* Gate */
+  .gate { min-height: 88vh; display: flex; flex-direction: column; justify-content: center; gap: 22px; text-align: center; }
+  .leaf { font-size: 44px; line-height: 1; }
+  .gate h1 { font-size: 38px; }
+  .gate p { color: var(--muted); margin: 0; }
+  .field { display: flex; flex-direction: column; gap: 8px; text-align: left; }
+  .field label { font-weight: 650; }
+  .field .hint { color: var(--muted); font-size: 15px; font-weight: 400; }
+  input[type=text], input[type=password], textarea {
+    width: 100%; min-height: 56px; padding: 14px 16px; border-radius: 14px;
+    border: 1.5px solid var(--line); background: var(--card); font-size: 19px;
+  }
+  textarea { min-height: 110px; resize: vertical; }
+  .error { color: #A4161A; font-size: 16px; min-height: 1.5em; margin: 0; }
+
+  /* Header */
+  header { padding: 28px 0 8px; }
+  header h1 { font-size: 34px; }
+  header .sub { color: var(--muted); margin-top: 6px; }
+  .hero { width: 100%; aspect-ratio: 16/9; object-fit: cover; object-position: 50% 55%; border-radius: var(--radius); margin-top: 16px; display: block; background: #EFE7DB; }
+
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px; }
+  .status { margin-top: 18px; background: var(--accent-soft); border-color: transparent; box-shadow: none; }
+  .status strong { display: block; }
+  .idea { margin-top: 14px; }
+  .idea .label { font-size: 14px; letter-spacing: .06em; text-transform: uppercase; color: var(--green); font-weight: 700; }
+  .idea .text { font-family: "Fraunces", Georgia, serif; font-size: 22px; margin: 4px 0 6px; }
+  .idea .note { color: var(--muted); font-size: 16px; }
+
+  .actions { display: grid; grid-template-columns: 1fr; gap: 10px; margin-top: 18px; }
+  .actions .row { display: grid; grid-template-columns: 1fr; gap: 10px; }
+
+  .chips { display: flex; gap: 8px; overflow-x: auto; padding: 18px 0 6px; scrollbar-width: none; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip {
+    flex: 0 0 auto; min-height: 44px; padding: 0 16px; border-radius: 999px;
+    border: 1.5px solid var(--line); background: var(--card); font-size: 16px; white-space: nowrap;
+  }
+  .chip[aria-pressed=true] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+  .feed { display: flex; flex-direction: column; gap: 18px; margin-top: 12px; }
+  .post { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+  .post.is-hidden { opacity: .55; border-style: dashed; }
+  .post .photo { width: 100%; display: block; background: #EFE7DB; min-height: 200px; max-height: 80vh; object-fit: contain; }
+  .post .body { padding: 14px 16px 16px; }
+  .post .who { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .post .name { font-weight: 700; font-size: 19px; }
+  .post .when { color: var(--muted); font-size: 15px; white-space: nowrap; }
+  .post .caption { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .post .foot { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; gap: 10px; }
+  .heart {
+    display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px;
+    border-radius: 999px; border: 1.5px solid var(--line); background: var(--card); font-size: 17px;
+  }
+  .heart svg { width: 22px; height: 22px; }
+  .heart[aria-pressed=true] { border-color: var(--heart); color: var(--heart); }
+  .heart[aria-pressed=true] svg path { fill: var(--heart); }
+  .admin-btn { min-height: 44px; padding: 0 14px; border-radius: 999px; border: 1.5px solid #A4161A; color: #A4161A; background: var(--card); font-size: 15px; }
+  .removed-tag { font-size: 14px; color: #A4161A; font-weight: 700; }
+
+  .empty { text-align: center; color: var(--muted); padding: 36px 12px; }
+  .adminbar { margin-top: 14px; display: flex; justify-content: space-between; align-items: center; gap: 12px; background: #FFF4E5; border: 1px solid #F1D3A8; border-radius: 14px; padding: 10px 14px; font-size: 16px; }
+
+  /* Sheet (share form) */
+  .overlay { position: fixed; inset: 0; background: rgba(30,25,20,.45); z-index: 20; display: flex; align-items: flex-end; justify-content: center; }
+  .sheet {
+    background: var(--bg); width: 100%; max-width: 640px; max-height: 100%; overflow-y: auto;
+    border-radius: 22px 22px 0 0; padding: 20px 16px calc(24px + env(safe-area-inset-bottom));
+    display: flex; flex-direction: column; gap: 18px;
+  }
+  @media (min-width: 700px) { .overlay { align-items: center; } .sheet { border-radius: 22px; max-height: 92vh; } }
+  .sheet-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .sheet-head h2 { font-size: 26px; }
+  .picker {
+    border: 2px dashed #CDBFAE; border-radius: var(--radius); background: var(--card);
+    min-height: 190px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    text-align: center; padding: 18px; width: 100%;
+  }
+  .picker .big { font-size: 40px; line-height: 1; }
+  .picker strong { font-size: 20px; }
+  .picker span { color: var(--muted); font-size: 16px; }
+  .preview { width: 100%; max-height: 50vh; object-fit: contain; border-radius: var(--radius); background: #EFE7DB; display: block; }
+  .count { color: var(--muted); font-size: 14px; text-align: right; }
+  .done { text-align: center; padding: 24px 8px; display: flex; flex-direction: column; gap: 14px; align-items: center; }
+  .done .big { font-size: 52px; }
+
+  /* Slideshow */
+  .show { position: fixed; inset: 0; background: #0E0C0A; z-index: 30; color: #fff; }
+  .show img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; transition: opacity .6s ease; }
+  .show .cap {
+    position: absolute; left: 0; right: 0; bottom: 0; padding: 60px 6vw calc(28px + env(safe-area-inset-bottom));
+    background: linear-gradient(transparent, rgba(0,0,0,.78));
+  }
+  .show .cap .n { font-family: "Fraunces", Georgia, serif; font-size: clamp(24px, 4vw, 44px); }
+  .show .cap .c { font-size: clamp(18px, 2.6vw, 30px); max-width: 60ch; margin-top: 4px; }
+  .show .cap .d { font-size: clamp(14px, 1.6vw, 18px); opacity: .75; margin-top: 6px; }
+  .show .controls {
+    position: absolute; top: calc(12px + env(safe-area-inset-top)); left: 12px; right: 12px;
+    display: flex; justify-content: space-between; gap: 8px; transition: opacity .3s;
+  }
+  .show .controls .grp { display: flex; gap: 8px; }
+  .show .controls button {
+    min-width: 52px; min-height: 52px; border-radius: 999px; border: 0; background: rgba(255,255,255,.16);
+    color: #fff; font-size: 17px; padding: 0 16px; backdrop-filter: blur(6px);
+  }
+  .show.idle .controls { opacity: 0; }
+  .show .counter { position: absolute; right: 6vw; bottom: calc(30px + env(safe-area-inset-bottom)); font-size: 15px; opacity: .7; z-index: 1; }
+  .show.idle .counter { opacity: 0; }
+
+  .toast {
+    position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+    background: var(--ink); color: var(--bg); padding: 12px 18px; border-radius: 14px; z-index: 40; font-size: 16px;
+    max-width: calc(100% - 32px); box-shadow: var(--shadow);
+  }
+</style>
+</head>
+<body>
+<div id="ribbon" class="ribbon hidden">Preview mode: sample posts only, not connected yet</div>
+
+<!-- Family code -->
+<main id="gate" class="wrap gate hidden">
+  <div class="leaf" aria-hidden="true">🍂</div>
+  <h1>Gratitude Among Us</h1>
+  <p>Sharing what we're grateful for, all through November.</p>
+  <form id="gateForm" class="field" autocomplete="off">
+    <label for="codeInput">Family code</label>
+    <input id="codeInput" type="text" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="go">
+    <p id="gateError" class="error" role="alert"></p>
+    <button class="btn block" type="submit" id="gateBtn">Come on in</button>
+  </form>
+</main>
+
+<!-- Main page -->
+<main id="app" class="wrap hidden">
+  <header>
+    <h1>Gratitude Among Us</h1>
+    <div class="sub">What we're grateful for · November 2026</div>
+    <img id="hero" class="hero hidden" alt="">
+  </header>
+
+  <div id="adminBar" class="adminbar hidden">
+    <span><strong>Admin mode</strong> · you can remove posts</span>
+    <button class="btn quiet small" id="adminExit" type="button">Exit</button>
+  </div>
+
+  <div id="status" class="panel status hidden" role="status"></div>
+
+  <div class="panel idea">
+    <div class="label">Need an idea?</div>
+    <div class="text" id="ideaText"></div>
+    <div class="note">Or share anything at all. Every post is welcome.</div>
+  </div>
+
+  <div class="actions">
+    <button class="btn block" id="shareBtn" type="button">
+      <span aria-hidden="true">📷</span> Share a photo
+    </button>
+    <button class="btn quiet block" id="showBtn" type="button">
+      <span aria-hidden="true">▶</span> Play slideshow
+    </button>
+  </div>
+
+  <div class="chips" id="chips" role="group" aria-label="Show posts from"></div>
+  <div class="feed" id="feed" aria-live="polite"></div>
+</main>
+
+<!-- Share sheet -->
+<div id="shareOverlay" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="shareTitle">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h2 id="shareTitle">Share a photo</h2>
+      <button class="btn quiet small" type="button" data-close>Cancel</button>
+    </div>
+
+    <form id="shareForm" class="sheet" style="padding:0;background:none;border-radius:0;overflow:visible;max-height:none">
+      <div class="field">
+        <label for="nameInput">Your name</label>
+        <input id="nameInput" type="text" maxlength="40" autocomplete="name" autocapitalize="words" enterkeyhint="next">
+      </div>
+
+      <div class="field">
+        <label id="photoLabel">Your photo</label>
+        <input id="fileInput" type="file" accept="image/*" class="hidden" aria-labelledby="photoLabel">
+        <button type="button" class="picker" id="pickerBtn">
+          <span class="big" aria-hidden="true">🖼️</span>
+          <strong>Tap to choose a photo</strong>
+          <span>or take a new one</span>
+        </button>
+        <img id="preview" class="preview hidden" alt="Your chosen photo">
+        <button type="button" class="btn quiet small hidden" id="changePhoto">Choose a different photo</button>
+      </div>
+
+      <div class="field">
+        <label for="captionInput">What are you grateful for? <span class="hint">(optional)</span></label>
+        <textarea id="captionInput" maxlength="280" placeholder="A few words about your photo"></textarea>
+        <div class="count" id="count">0 / 280</div>
+      </div>
+
+      <p id="shareError" class="error" role="alert"></p>
+      <button class="btn block" type="submit" id="postBtn">Share it</button>
+    </form>
+
+    <div id="shareDone" class="done hidden">
+      <div class="big" aria-hidden="true">🧡</div>
+      <h2>Thank you for sharing!</h2>
+      <p style="margin:0;color:var(--muted)">Your photo is up for the family to see.</p>
+      <button class="btn block" type="button" data-close>Back to the photos</button>
+    </div>
+  </div>
+</div>
+
+<!-- Admin key -->
+<div id="adminOverlay" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="adminTitle">
+  <form class="sheet" id="adminForm">
+    <div class="sheet-head">
+      <h2 id="adminTitle">Admin sign-in</h2>
+      <button class="btn quiet small" type="button" data-close>Cancel</button>
+    </div>
+    <div class="field">
+      <label for="adminInput">Admin key</label>
+      <input id="adminInput" type="password" autocomplete="off">
+    </div>
+    <p id="adminError" class="error" role="alert"></p>
+    <button class="btn block" type="submit">Turn on admin mode</button>
+  </form>
+</div>
+
+<!-- Slideshow -->
+<div id="show" class="show hidden" role="dialog" aria-label="Slideshow">
+  <img id="slideA" alt="">
+  <img id="slideB" alt="" style="opacity:0">
+  <div class="counter" id="slideCount"></div>
+  <div class="controls">
+    <div class="grp">
+      <button type="button" id="slidePrev" aria-label="Previous">‹</button>
+      <button type="button" id="slidePlay" aria-label="Pause">Pause</button>
+      <button type="button" id="slideNext" aria-label="Next">›</button>
+    </div>
+    <button type="button" id="slideClose">Close</button>
+  </div>
+  <div class="cap"><div class="n" id="slideName"></div><div class="c" id="slideCap"></div><div class="d" id="slideDate"></div></div>
+</div>
+
+<div id="toast" class="toast hidden" role="status"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  const PREVIEW = !API_URL || API_URL.indexOf('PASTE') !== -1;
+  const $ = (id) => document.getElementById(id);
+
+  // ── Small storage helpers (never let storage problems break the page) ──
+  const store = {
+    get(k) { try { return localStorage.getItem('gau_' + k); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem('gau_' + k, v); } catch (e) {} },
+    del(k) { try { localStorage.removeItem('gau_' + k); } catch (e) {} },
+  };
+
+  const state = {
+    code: store.get('code') || '',
+    admin: store.get('admin') || '',
+    posts: [],
+    window: null,
+    filter: 'all',
+    hearted: new Set(JSON.parse(store.get('hearted') || '[]')),
+    imageData: null,
+    posting: false,
+  };
+
+  // ── API ──
+  async function apiGet(params) {
+    if (PREVIEW) return Mock.get(params);
+    const qs = new URLSearchParams(params).toString();
+    const res = await fetch(API_URL + '?' + qs, { method: 'GET' });
+    return res.json();
+  }
+  async function apiPost(body) {
+    if (PREVIEW) return Mock.post(body);
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(body),
+    });
+    return res.json();
+  }
+
+  // ── Preview mode: an in-memory stand-in for the backend ──
+  const Mock = (function () {
+    function art(c1, c2, emoji) {
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient></defs><rect width="1200" height="900" fill="url(#g)"/><text x="600" y="520" font-size="260" text-anchor="middle">${emoji}</text></svg>`;
+      return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    }
+    const day = 864e5, now = Date.now();
+    const posts = [
+      { id: 'p4', posted: new Date(now - 2 * 36e5).toISOString(), name: 'Sample: Grandpa', caption: 'Morning coffee on the porch before anyone else is up.', src: art('#F3C892', '#C9733A', '☕'), hearts: 4 },
+      { id: 'p3', posted: new Date(now - 1 * day).toISOString(), name: 'Sample: Aunt June', caption: 'The kids raked the whole yard without being asked. A small miracle!', src: art('#E9B872', '#8F3B1B', '🍁'), hearts: 7 },
+      { id: 'p2', posted: new Date(now - 3 * day).toISOString(), name: 'Sample: Sam', caption: 'First practice back after my injury.', src: art('#A9C2A0', '#3F5A3A', '🏀'), hearts: 5 },
+      { id: 'p1', posted: new Date(now - 5 * day).toISOString(), name: 'Sample: Grandpa', caption: '', src: art('#F6E4D6', '#B98B6B', '🥧'), hearts: 2 },
+    ].map(p => Object.assign({ fileId: '', hidden: false }, p));
+    const wait = (ms) => new Promise(r => setTimeout(r, ms));
+    const okCode = (c) => String(c || '').trim().toLowerCase() === 'rensselaer';
+    const win = { phase: 'open', open: true, testing: true, start: '2026-11-01T05:00:00Z', end: '2026-12-01T06:00:00Z' };
+    return {
+      async get(p) {
+        await wait(250);
+        const admin = p.admin === 'preview-admin';
+        if (!admin && !okCode(p.code)) return { ok: false, error: 'bad_code' };
+        return { ok: true, admin, window: win, headerSrc: window.PREVIEW_HEADER || '', posts: posts.filter(x => admin || !x.hidden).map(x => Object.assign({}, x)) };
+      },
+      async post(b) {
+        await wait(b.action === 'post' ? 900 : 200);
+        if (b.action === 'verify') return b.admin ? { ok: b.admin === 'preview-admin', admin: true } : { ok: okCode(b.code) };
+        if (b.action === 'post') {
+          const p = { id: 'n' + Date.now(), posted: new Date().toISOString(), name: b.name, caption: b.caption || '', src: b.image, fileId: '', hearts: 0, hidden: false };
+          posts.unshift(p);
+          return { ok: true, post: Object.assign({}, p) };
+        }
+        const p = posts.find(x => x.id === b.postId);
+        if (!p) return { ok: false, error: 'not_found' };
+        if (b.action === 'heart') { p.hearts = Math.max(0, p.hearts + (b.delta === -1 ? -1 : 1)); return { ok: true, hearts: p.hearts }; }
+        if (b.action === 'hide' || b.action === 'unhide') {
+          if (b.admin !== 'preview-admin') return { ok: false, error: 'not_admin' };
+          p.hidden = b.action === 'hide'; return { ok: true, hidden: p.hidden };
+        }
+        return { ok: false, error: 'bad_request' };
+      },
+    };
+  })();
+
+  // ── Formatting ──
+  const fmtDate = (iso) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const fmtLong = (iso) => new Date(iso).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+  function imgUrl(p, w) {
+    if (p.src) return p.src;
+    return 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(p.fileId) + '&sz=w' + w;
+  }
+  function imgFallback(p, w) {
+    return p.src ? '' : 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(p.fileId) + '=w' + w;
+  }
+  function setImg(el, p, w) {
+    el.onerror = null;
+    const fb = imgFallback(p, w);
+    if (fb) el.onerror = function () { el.onerror = null; el.src = fb; };
+    el.src = imgUrl(p, w);
+  }
+  function weeklyIdea() {
+    const d = new Date();
+    let i = 0;
+    if (d.getMonth() === 10) i = Math.min(3, Math.floor((d.getDate() - 1) / 7));
+    return WEEKLY_IDEAS[i] || WEEKLY_IDEAS[0];
+  }
+  let toastTimer;
+  function toast(msg) {
+    const t = $('toast'); t.textContent = msg; t.classList.remove('hidden');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.add('hidden'), 3200);
+  }
+  const ERRORS = {
+    bad_code: "That code didn't work. Check the spelling and try again.",
+    closed: 'Sharing is closed right now.',
+    name_required: 'Please add your name.',
+    bad_image: "That photo didn't come through. Please try a different one.",
+    too_big: 'That photo is too large. Please try a different one.',
+    network: "Couldn't connect. Check your internet and try again.",
+    server_error: 'Something went wrong on our end. Please try again in a minute.',
+  };
+  const errText = (code) => ERRORS[code] || ERRORS.server_error;
+
+  // ── Views ──
+  function showGate() {
+    $('app').classList.add('hidden');
+    $('gate').classList.remove('hidden');
+    setTimeout(() => $('codeInput').focus(), 50);
+  }
+  function showApp() {
+    $('gate').classList.add('hidden');
+    $('app').classList.remove('hidden');
+  }
+
+  async function load(quiet) {
+    let r;
+    try {
+      r = await apiGet({ action: 'list', code: state.code, admin: state.admin });
+    } catch (e) {
+      if (!quiet) toast(errText('network'));
+      return false;
+    }
+    if (!r.ok) {
+      if (r.error === 'bad_code') { store.del('code'); state.code = ''; showGate(); }
+      else if (!quiet) toast(errText(r.error));
+      return false;
+    }
+    if (state.admin && !r.admin) { store.del('admin'); state.admin = ''; }
+    state.posts = r.posts || [];
+    state.window = r.window;
+    const hero = $('hero');
+    if (r.headerSrc || r.headerFileId) {
+      if (!hero.dataset.set) { setImg(hero, { src: r.headerSrc, fileId: r.headerFileId }, 1600); hero.dataset.set = '1'; }
+      hero.classList.remove('hidden');
+    } else hero.classList.add('hidden');
+    showApp();
+    render();
+    return true;
+  }
+
+  function render() {
+    // Status + share button
+    const w = state.window || { phase: 'open', open: true };
+    const status = $('status');
+    status.replaceChildren();
+    let s = null;
+    if (w.phase === 'before' && !w.testing) s = ['Sharing opens ' + fmtLong(w.start), 'Come back then to add your first photo.'];
+    else if (w.phase === 'after' && !w.testing) s = ['Sharing has closed', "Thank you for everything you shared. The photos will stay here to enjoy."];
+    else if (w.testing && w.phase !== 'open') s = ['Test mode', 'Posting is open for testing before November 1.'];
+    if (s) {
+      const b = document.createElement('strong'); b.textContent = s[0];
+      const t = document.createElement('span'); t.textContent = s[1];
+      status.append(b, t); status.classList.remove('hidden');
+    } else status.classList.add('hidden');
+    $('shareBtn').disabled = !w.open;
+    $('ideaText').textContent = weeklyIdea();
+    $('adminBar').classList.toggle('hidden', !state.admin);
+    $('showBtn').disabled = visiblePosts().filter(p => !p.hidden).length === 0;
+
+    renderChips();
+    renderFeed();
+  }
+
+  function names() {
+    const seen = new Map();
+    state.posts.forEach(p => { if (!p.hidden) { const k = p.name.trim().toLowerCase(); if (!seen.has(k)) seen.set(k, p.name.trim()); } });
+    return [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }
+  function visiblePosts() {
+    if (state.filter === 'all') return state.posts;
+    return state.posts.filter(p => p.name.trim().toLowerCase() === state.filter);
+  }
+
+  function renderChips() {
+    const wrap = $('chips');
+    const list = names();
+    if (state.filter !== 'all' && !list.some(n => n[0] === state.filter)) state.filter = 'all';
+    wrap.replaceChildren();
+    if (list.length < 2) { wrap.classList.add('hidden'); return; }
+    wrap.classList.remove('hidden');
+    const make = (key, label) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'chip'; b.textContent = label;
+      b.setAttribute('aria-pressed', String(state.filter === key));
+      b.onclick = () => { state.filter = key; renderChips(); renderFeed(); $('showBtn').disabled = visiblePosts().filter(p => !p.hidden).length === 0; };
+      return b;
+    };
+    wrap.append(make('all', 'Everyone'));
+    list.forEach(([k, label]) => wrap.append(make(k, label)));
+  }
+
+  const HEART = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7.5-4.6-9.6-9.3C.9 8.3 3 4.5 6.7 4.5c2.1 0 3.6 1.2 4.3 2.4.7-1.2 2.2-2.4 4.3-2.4 3.7 0 5.8 3.8 4.3 7.2C19.5 16.4 12 21 12 21z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>';
+
+  function renderFeed() {
+    const feed = $('feed');
+    const posts = visiblePosts();
+    feed.replaceChildren();
+    if (!posts.length) {
+      const e = document.createElement('div'); e.className = 'empty';
+      e.textContent = state.window && state.window.phase === 'before' && !state.window.testing
+        ? 'Photos will appear here once sharing opens.'
+        : 'No photos yet. Be the first to share something!';
+      feed.append(e); return;
+    }
+    posts.forEach(p => feed.append(postCard(p)));
+  }
+
+  function postCard(p) {
+    const card = document.createElement('article');
+    card.className = 'post' + (p.hidden ? ' is-hidden' : '');
+
+    const img = document.createElement('img');
+    img.className = 'photo'; img.loading = 'lazy'; img.alt = p.caption ? p.name + ': ' + p.caption : 'Photo shared by ' + p.name;
+    setImg(img, p, 1200);
+
+    const body = document.createElement('div'); body.className = 'body';
+    const who = document.createElement('div'); who.className = 'who';
+    const n = document.createElement('div'); n.className = 'name'; n.textContent = p.name;
+    const d = document.createElement('div'); d.className = 'when'; d.textContent = fmtDate(p.posted);
+    who.append(n, d); body.append(who);
+
+    if (p.caption) {
+      const c = document.createElement('p'); c.className = 'caption'; c.textContent = p.caption; body.append(c);
+    }
+
+    const foot = document.createElement('div'); foot.className = 'foot';
+    const h = document.createElement('button'); h.type = 'button'; h.className = 'heart';
+    const on = state.hearted.has(p.id);
+    h.setAttribute('aria-pressed', String(on));
+    h.setAttribute('aria-label', (on ? 'Remove heart' : 'Send a heart') + ', ' + p.hearts + ' so far');
+    h.innerHTML = HEART;
+    const hc = document.createElement('span'); hc.textContent = String(p.hearts); h.append(hc);
+    h.onclick = () => toggleHeart(p);
+    if (p.hidden) h.disabled = true;
+    foot.append(h);
+
+    if (state.admin) {
+      const right = document.createElement('div'); right.style.display = 'flex'; right.style.gap = '10px'; right.style.alignItems = 'center';
+      if (p.hidden) { const t = document.createElement('span'); t.className = 'removed-tag'; t.textContent = 'Removed'; right.append(t); }
+      const a = document.createElement('button'); a.type = 'button'; a.className = 'admin-btn';
+      a.textContent = p.hidden ? 'Restore' : 'Remove';
+      a.onclick = () => setHidden(p, !p.hidden);
+      right.append(a); foot.append(right);
+    }
+    body.append(foot);
+    card.append(img, body);
+    return card;
+  }
+
+  async function toggleHeart(p) {
+    const on = state.hearted.has(p.id);
+    const delta = on ? -1 : 1;
+    on ? state.hearted.delete(p.id) : state.hearted.add(p.id);
+    p.hearts = Math.max(0, p.hearts + delta);
+    store.set('hearted', JSON.stringify([...state.hearted]));
+    renderFeed();
+    try {
+      const r = await apiPost({ action: 'heart', postId: p.id, delta, code: state.code, admin: state.admin });
+      if (r.ok) { p.hearts = r.hearts; renderFeed(); }
+    } catch (e) { /* the heart stays on this phone; the count will settle on the next refresh */ }
+  }
+
+  async function setHidden(p, hide) {
+    if (hide && !confirm('Remove this post from the page? You can restore it later.')) return;
+    try {
+      const r = await apiPost({ action: hide ? 'hide' : 'unhide', postId: p.id, admin: state.admin });
+      if (!r.ok) { toast(r.error === 'not_admin' ? 'Admin key not accepted.' : errText(r.error)); return; }
+      p.hidden = hide; render(); toast(hide ? 'Post removed.' : 'Post restored.');
+    } catch (e) { toast(errText('network')); }
+  }
+
+  // ── Gate ──
+  $('gateForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const code = $('codeInput').value.trim();
+    if (!code) { $('gateError').textContent = 'Please type the family code.'; return; }
+    $('gateBtn').disabled = true; $('gateError').textContent = '';
+    try {
+      const r = await apiPost({ action: 'verify', code });
+      if (!r.ok) { $('gateError').textContent = errText('bad_code'); return; }
+      state.code = code; store.set('code', code);
+      await load();
+    } catch (err) {
+      $('gateError').textContent = errText('network');
+    } finally { $('gateBtn').disabled = false; }
+  });
+
+  // ── Share flow ──
+  function openOverlay(id) { $(id).classList.remove('hidden'); document.body.style.overflow = 'hidden'; }
+  function closeOverlay(id) { $(id).classList.add('hidden'); document.body.style.overflow = ''; }
+  document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => {
+    closeOverlay(b.closest('.overlay').id);
+  }));
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    ['shareOverlay', 'adminOverlay'].forEach(id => { if (!$(id).classList.contains('hidden') && !state.posting) closeOverlay(id); });
+  });
+
+  function resetShare() {
+    state.imageData = null;
+    $('fileInput').value = '';
+    $('preview').classList.add('hidden'); $('preview').removeAttribute('src');
+    $('pickerBtn').classList.remove('hidden'); $('changePhoto').classList.add('hidden');
+    $('captionInput').value = ''; $('count').textContent = '0 / 280';
+    $('shareError').textContent = '';
+    $('shareForm').classList.remove('hidden'); $('shareDone').classList.add('hidden');
+    $('nameInput').value = store.get('name') || '';
+  }
+  $('shareBtn').addEventListener('click', () => { resetShare(); openOverlay('shareOverlay'); });
+  $('pickerBtn').addEventListener('click', () => $('fileInput').click());
+  $('changePhoto').addEventListener('click', () => $('fileInput').click());
+  $('captionInput').addEventListener('input', () => { $('count').textContent = $('captionInput').value.length + ' / 280'; });
+
+  $('fileInput').addEventListener('change', async () => {
+    const f = $('fileInput').files && $('fileInput').files[0];
+    if (!f) return;
+    $('shareError').textContent = '';
+    try {
+      state.imageData = await shrink(f);
+      $('preview').src = state.imageData;
+      $('preview').classList.remove('hidden'); $('changePhoto').classList.remove('hidden');
+      $('pickerBtn').classList.add('hidden');
+    } catch (e) {
+      state.imageData = null;
+      $('shareError').textContent = "We couldn't open that photo. Please try a different one.";
+    }
+  });
+
+  // Resize on the phone so uploads are quick: longest side 1600px, JPEG.
+  function shrink(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const max = 1600;
+          const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+          const w = Math.max(1, Math.round(img.naturalWidth * scale));
+          const h = Math.max(1, Math.round(img.naturalHeight * scale));
+          const c = document.createElement('canvas'); c.width = w; c.height = h;
+          const ctx = c.getContext('2d');
+          ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
+          ctx.drawImage(img, 0, 0, w, h);
+          let q = 0.85, out = c.toDataURL('image/jpeg', q);
+          while (out.length > 4.5e6 && q > 0.45) { q -= 0.1; out = c.toDataURL('image/jpeg', q); }
+          URL.revokeObjectURL(url);
+          resolve(out);
+        } catch (e) { URL.revokeObjectURL(url); reject(e); }
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('load')); };
+      img.src = url;
+    });
+  }
+
+  $('shareForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (state.posting) return;
+    const name = $('nameInput').value.trim();
+    const caption = $('captionInput').value.trim();
+    if (!name) { $('shareError').textContent = errText('name_required'); $('nameInput').focus(); return; }
+    if (!state.imageData) { $('shareError').textContent = 'Please choose a photo first.'; return; }
+    store.set('name', name);
+    state.posting = true;
+    const btn = $('postBtn'); btn.disabled = true; btn.textContent = 'Sharing…';
+    $('shareError').textContent = '';
+    try {
+      const r = await apiPost({ action: 'post', code: state.code, name, caption, image: state.imageData });
+      if (!r.ok) {
+        if (r.error === 'bad_code') { closeOverlay('shareOverlay'); store.del('code'); state.code = ''; showGate(); return; }
+        $('shareError').textContent = errText(r.error); return;
+      }
+      state.posts.unshift(r.post);
+      state.filter = 'all';
+      render();
+      $('shareForm').classList.add('hidden'); $('shareDone').classList.remove('hidden');
+    } catch (err) {
+      $('shareError').textContent = errText('network');
+    } finally {
+      state.posting = false; btn.disabled = false; btn.textContent = 'Share it';
+    }
+  });
+
+  // ── Admin ──
+  $('adminForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const key = $('adminInput').value;
+    $('adminError').textContent = '';
+    try {
+      const r = await apiPost({ action: 'verify', admin: key });
+      if (!r.ok) { $('adminError').textContent = 'That admin key was not accepted.'; return; }
+      state.admin = key; store.set('admin', key);
+      closeOverlay('adminOverlay');
+      await load();
+      toast('Admin mode is on.');
+    } catch (err) { $('adminError').textContent = errText('network'); }
+  });
+  $('adminExit').addEventListener('click', () => { store.del('admin'); state.admin = ''; load(); });
+
+  // ── Slideshow ──
+  const show = { list: [], i: 0, timer: null, playing: true, front: 'slideA', idleTimer: null };
+  function slidePosts() {
+    // Oldest first, so the month unfolds in order.
+    return visiblePosts().filter(p => !p.hidden).slice().sort((a, b) => a.posted.localeCompare(b.posted));
+  }
+  function openShow() {
+    show.list = slidePosts();
+    if (!show.list.length) return;
+    show.i = 0; show.playing = true;
+    $('show').classList.remove('hidden'); document.body.style.overflow = 'hidden';
+    const el = $('show');
+    if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
+    $('slideA').style.opacity = 1; $('slideB').style.opacity = 0; show.front = 'slideA';
+    paint(true); schedule(); wake();
+    try { if (navigator.wakeLock) navigator.wakeLock.request('screen').then(l => { show.lock = l; }).catch(() => {}); } catch (e) {}
+  }
+  function closeShow() {
+    clearTimeout(show.timer); clearTimeout(show.idleTimer);
+    $('show').classList.add('hidden'); document.body.style.overflow = '';
+    if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+    if (show.lock) { show.lock.release().catch(() => {}); show.lock = null; }
+  }
+  function paint(first) {
+    const p = show.list[show.i];
+    const back = show.front === 'slideA' ? 'slideB' : 'slideA';
+    const target = first ? show.front : back;
+    const el = $(target);
+    el.alt = p.caption ? p.name + ': ' + p.caption : 'Photo shared by ' + p.name;
+    const reveal = () => {
+      if (!first) { $(back).style.opacity = 1; $(show.front).style.opacity = 0; show.front = back; }
+    };
+    el.onload = reveal;
+    setImg(el, p, 2000);
+    $('slideName').textContent = p.name;
+    $('slideCap').textContent = p.caption;
+    $('slideDate').textContent = fmtLong(p.posted);
+    $('slideCount').textContent = (show.i + 1) + ' of ' + show.list.length;
+    // Preload the next one
+    const nx = show.list[(show.i + 1) % show.list.length];
+    if (nx) { const pre = new Image(); pre.src = imgUrl(nx, 2000); }
+  }
+  function step(d) {
+    show.i = (show.i + d + show.list.length) % show.list.length;
+    paint(false); schedule();
+  }
+  function schedule() {
+    clearTimeout(show.timer);
+    if (show.playing) show.timer = setTimeout(() => step(1), SLIDE_SECONDS * 1000);
+    $('slidePlay').textContent = show.playing ? 'Pause' : 'Play';
+    $('slidePlay').setAttribute('aria-label', show.playing ? 'Pause' : 'Play');
+  }
+  function wake() {
+    $('show').classList.remove('idle');
+    clearTimeout(show.idleTimer);
+    show.idleTimer = setTimeout(() => $('show').classList.add('idle'), 3500);
+  }
+  $('showBtn').addEventListener('click', openShow);
+  $('slideClose').addEventListener('click', closeShow);
+  $('slidePrev').addEventListener('click', () => { step(-1); wake(); });
+  $('slideNext').addEventListener('click', () => { step(1); wake(); });
+  $('slidePlay').addEventListener('click', () => { show.playing = !show.playing; schedule(); wake(); });
+  $('show').addEventListener('pointerdown', wake);
+  $('show').addEventListener('pointermove', wake);
+  document.addEventListener('keydown', (e) => {
+    if ($('show').classList.contains('hidden')) return;
+    if (e.key === 'ArrowRight') { step(1); wake(); }
+    else if (e.key === 'ArrowLeft') { step(-1); wake(); }
+    else if (e.key === ' ') { e.preventDefault(); show.playing = !show.playing; schedule(); wake(); }
+    else if (e.key === 'Escape') closeShow();
+  });
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement && !$('show').classList.contains('hidden')) { /* stay open; Esc again closes */ }
+  });
+
+  // ── Start ──
+  if (PREVIEW) $('ribbon').classList.remove('hidden');
+
+  const params = new URLSearchParams(location.search);
+  const wantsAdmin = params.has('admin');
+
+  async function start() {
+    if (state.code || state.admin) {
+      const ok = await load();
+      if (!ok && !state.code && !state.admin) showGate();
+    } else {
+      showGate();
+    }
+    if (wantsAdmin && !state.admin) {
+      history.replaceState(null, '', location.pathname);
+      openOverlay('adminOverlay'); setTimeout(() => $('adminInput').focus(), 50);
+    }
+  }
+  start();
+
+  // Keep the feed fresh while the page is open.
+  setInterval(() => { if (document.visibilityState === 'visible' && !$('app').classList.contains('hidden') && $('show').classList.contains('hidden')) load(true); }, 60000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && !$('app').classList.contains('hidden')) load(true);
+  });
+})();
+</script>
+</body>
+</html>
