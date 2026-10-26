@@ -140,6 +140,7 @@
   .failed .row { display: flex; gap: 10px; flex-wrap: wrap; }
   .removed-tag { font-size: 14px; color: #A4161A; font-weight: 700; }
 
+  .ver { text-align: center; color: var(--muted); font-size: 13px; margin: 28px 0 0; }
   .empty { text-align: center; color: var(--muted); padding: 36px 12px; }
   .adminbar { margin-top: 14px; display: flex; justify-content: space-between; align-items: center; gap: 12px; background: #FFF4E5; border: 1px solid #F1D3A8; border-radius: 14px; padding: 10px 14px; font-size: 16px; }
 
@@ -250,6 +251,7 @@
 
   <div class="chips" id="chips" role="group" aria-label="Show posts from"></div>
   <div class="feed" id="feed" aria-live="polite"></div>
+  <p class="ver">Version 5 · Oct 26</p>
 </main>
 
 <!-- Share sheet -->
@@ -397,7 +399,7 @@
         await wait(250);
         const admin = p.admin === 'preview-admin';
         if (!admin && !okCode(p.code)) return { ok: false, error: 'bad_code' };
-        return { ok: true, admin, window: win, headerSrc: window.PREVIEW_HEADER || '', posts: posts.filter(x => admin || !x.hidden).map(x => Object.assign({}, x)) };
+        return { ok: true, admin, window: win, delta: !!p.since, removed: admin ? [] : posts.filter(x => x.hidden).map(x => x.id), syncedAt: new Date().toISOString(), headerSrc: window.PREVIEW_HEADER || '', posts: posts.filter(x => admin || !x.hidden).map(x => Object.assign({}, x)) };
       },
       async post(b) {
         await wait(b.action === 'post' ? 900 : 200);
@@ -512,27 +514,79 @@
     $('app').classList.remove('hidden');
   }
 
-  async function load(quiet) {
+  // ── Saved copy of the feed on this phone ──
+  // The page shows this copy instantly, then asks Google only for what changed since the last check.
+  const FULL_REFRESH_HOURS = 12;   // a full refresh now and then catches edits made directly in the Sheet
+  function readCache() {
+    try { return JSON.parse(store.get('feed') || 'null'); } catch (e) { return null; }
+  }
+  function saveCache() {
+    if (!state.syncedAt) return;
+    const posts = state.posts.filter(p => !p.pending);
+    const data = { v: 1, admin: !!state.admin, syncedAt: state.syncedAt, fullAt: state.fullAt,
+                   window: state.window, header: state.header, posts };
+    try { localStorage.setItem('gau_feed', JSON.stringify(data)); }
+    catch (e) { store.del('feed'); }
+  }
+  function applyHeader(h) {
+    const hero = $('hero');
+    if (h && (h.src || h.fileId)) {
+      const key = (h.src ? 'local' : h.fileId);
+      if (hero.dataset.set !== key) { setImg(hero, { id: 'header', src: h.src, fileId: h.fileId }); hero.dataset.set = key; }
+      hero.classList.remove('hidden');
+    } else hero.classList.add('hidden');
+  }
+  function showCached() {
+    const c = readCache();
+    if (!c || c.v !== 1 || c.admin !== !!state.admin) return false;
+    state.posts = c.posts || [];
+    state.window = c.window; state.header = c.header;
+    state.syncedAt = c.syncedAt; state.fullAt = c.fullAt;
+    applyHeader(state.header);
+    showApp(); render();
+    return true;
+  }
+
+  let loading = null;
+  function load(quiet, full) {
+    if (loading) return loading;   // never run two checks at once
+    loading = doLoad(quiet, full).finally(() => { loading = null; });
+    return loading;
+  }
+  async function doLoad(quiet, full) {
+    const stale = !state.fullAt || (Date.now() - new Date(state.fullAt).getTime()) > FULL_REFRESH_HOURS * 36e5;
+    const since = (!full && !stale && state.syncedAt) ? state.syncedAt : '';
     let r;
     try {
-      r = await apiGet({ action: 'list', code: state.code, admin: state.admin });
+      const params = { action: 'list', code: state.code, admin: state.admin };
+      if (since) params.since = since;
+      r = await apiGet(params);
     } catch (e) {
       if (!quiet) toast(errText('network'));
       return false;
     }
     if (!r.ok) {
-      if (r.error === 'bad_code') { store.del('code'); state.code = ''; showGate(); }
+      if (r.error === 'bad_code') { store.del('code'); store.del('feed'); state.code = ''; state.posts = []; showGate(); }
       else if (!quiet) toast(errText(r.error));
       return false;
     }
-    if (state.admin && !r.admin) { store.del('admin'); state.admin = ''; }
-    state.posts = state.posts.filter(p => p.pending).concat(r.posts || []);
+    if (state.admin && !r.admin) { store.del('admin'); state.admin = ''; store.del('feed'); return doLoad(quiet, true); }
+
+    const pending = state.posts.filter(p => p.pending);
+    if (r.delta) {
+      // Merge in only what changed.
+      const byId = new Map(state.posts.filter(p => !p.pending).map(p => [p.id, p]));
+      (r.removed || []).forEach(id => byId.delete(id));
+      (r.posts || []).forEach(p => byId.set(p.id, p));
+      state.posts = pending.concat([...byId.values()].sort((a, b) => b.posted.localeCompare(a.posted)));
+    } else {
+      state.posts = pending.concat(r.posts || []);
+      state.fullAt = r.syncedAt;
+    }
+    state.syncedAt = r.syncedAt;
     state.window = r.window;
-    const hero = $('hero');
-    if (r.headerSrc || r.headerFileId) {
-      if (!hero.dataset.set) { setImg(hero, { id: 'header', src: r.headerSrc, fileId: r.headerFileId }); hero.dataset.set = '1'; }
-      hero.classList.remove('hidden');
-    } else hero.classList.add('hidden');
+    state.header = { src: r.headerSrc || '', fileId: r.headerFileId || '' };
+    applyHeader(state.header);
     showApp();
     render();
     return true;
@@ -559,6 +613,7 @@
 
     renderChips();
     renderFeed();
+    saveCache();
   }
 
   function names() {
@@ -679,7 +734,7 @@
     paintHeart(h, p);
     try {
       const r = await apiPost({ action: 'heart', postId: p.id, delta, code: state.code, admin: state.admin });
-      if (r.ok) { p.hearts = r.hearts; paintHeart(h, p); }
+      if (r.ok) { p.hearts = r.hearts; paintHeart(h, p); saveCache(); }
     } catch (e) { /* the heart stays on this phone; the count settles on the next refresh */ }
   }
 
@@ -896,11 +951,12 @@
       if (!r.ok) { $('adminError').textContent = 'That admin key was not accepted.'; return; }
       state.admin = key; store.set('admin', key);
       closeOverlay('adminOverlay');
-      await load();
+      store.del('feed'); state.syncedAt = ''; state.fullAt = '';
+      await load(false, true);
       toast('Admin mode is on.');
     } catch (err) { $('adminError').textContent = errText('network'); }
   });
-  $('adminExit').addEventListener('click', () => { store.del('admin'); state.admin = ''; load(); });
+  $('adminExit').addEventListener('click', () => { store.del('admin'); state.admin = ''; store.del('feed'); state.syncedAt = ''; state.fullAt = ''; load(false, true); });
 
   // ── Slideshow ──
   const show = { list: [], i: 0, timer: null, playing: true, front: 'slideA', idleTimer: null };
@@ -985,7 +1041,8 @@
 
   async function start() {
     if (state.code || state.admin) {
-      const ok = await load();
+      const cached = showCached();
+      const ok = await load(cached);
       if (!ok && !state.code && !state.admin) showGate();
     } else {
       showGate();
