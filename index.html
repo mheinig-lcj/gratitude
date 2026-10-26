@@ -13,7 +13,7 @@
   // ─────────────── Settings ───────────────
   // Paste your Apps Script web app URL here (it ends in /exec).
   // While this still says PASTE, the page runs in preview mode with sample posts.
-  const API_URL = 'https://script.google.com/macros/s/AKfycbxBZniMji5-mWjlkdl91fudKeivB-mhfVbVjzQEK6G3ASGiHtMg35gAA7Gt2cVLp66uEw/exec';
+  const API_URL = 'PASTE_YOUR_WEB_APP_URL_HERE';
 
   // The header photo is set in the Apps Script (HEADER_FILE_ID), so it stays private.
 
@@ -130,6 +130,8 @@
   .heart[aria-pressed=true] { border-color: var(--heart); color: var(--heart); }
   .heart[aria-pressed=true] svg path { fill: var(--heart); }
   .admin-btn { min-height: 44px; padding: 0 14px; border-radius: 999px; border: 1.5px solid #A4161A; color: #A4161A; background: var(--card); font-size: 15px; }
+  .edit-btn { min-height: 44px; padding: 0 16px; border-radius: 999px; border: 1.5px solid var(--line); background: var(--card); font-size: 16px; }
+  .danger { background: var(--card); color: #A4161A; border: 1.5px solid #A4161A; }
   .removed-tag { font-size: 14px; color: #A4161A; font-weight: 700; }
 
   .empty { text-align: center; color: var(--muted); padding: 36px 12px; }
@@ -272,12 +274,18 @@
 
       <p id="shareError" class="error" role="alert"></p>
       <button class="btn block" type="submit" id="postBtn">Share it</button>
+      <button class="btn block danger hidden" type="button" id="deleteBtn">Delete this post</button>
+      <div id="confirmDelete" class="panel hidden" style="display:flex;flex-direction:column;gap:12px">
+        <strong>Delete this post for everyone?</strong>
+        <button class="btn block danger" type="button" id="deleteYes">Yes, delete it</button>
+        <button class="btn block quiet" type="button" id="deleteNo">Keep it</button>
+      </div>
     </form>
 
     <div id="shareDone" class="done hidden">
       <div class="big" aria-hidden="true">🧡</div>
-      <h2>Thank you for sharing!</h2>
-      <p style="margin:0;color:var(--muted)">Your photo is up for the family to see.</p>
+      <h2 id="doneTitle">Thank you for sharing!</h2>
+      <p style="margin:0;color:var(--muted)" id="doneText">Your photo is up for the family to see.</p>
       <button class="btn block" type="button" data-close>Back to the photos</button>
     </div>
   </div>
@@ -339,6 +347,8 @@
     filter: 'all',
     hearted: new Set(JSON.parse(store.get('hearted') || '[]')),
     imageData: null,
+    mine: JSON.parse(store.get('mine') || '{}'),
+    editing: null,
     posting: false,
   };
 
@@ -386,16 +396,24 @@
         await wait(b.action === 'post' ? 900 : 200);
         if (b.action === 'verify') return b.admin ? { ok: b.admin === 'preview-admin', admin: true } : { ok: okCode(b.code) };
         if (b.action === 'post') {
-          const p = { id: 'n' + Date.now(), posted: new Date().toISOString(), name: b.name, caption: b.caption || '', src: b.image, fileId: '', hearts: 0, hidden: false };
+          const key = 'k' + Math.random();
+          const p = { id: 'n' + Date.now(), posted: new Date().toISOString(), name: b.name, caption: b.caption || '', src: b.image, fileId: '', hearts: 0, hidden: false, key };
           posts.unshift(p);
-          return { ok: true, post: Object.assign({}, p) };
+          return { ok: true, editKey: key, post: Object.assign({}, p, { key: undefined }) };
         }
         const p = posts.find(x => x.id === b.postId);
         if (!p) return { ok: false, error: 'not_found' };
+        const owns = b.admin === 'preview-admin' || (b.editKey && b.editKey === p.key);
+        if (b.action === 'edit') {
+          if (!owns) return { ok: false, error: 'not_yours' };
+          p.name = b.name; p.caption = b.caption || ''; if (b.image) p.src = b.image;
+          return { ok: true, post: Object.assign({}, p, { key: undefined }) };
+        }
+        if (b.action === 'delete') { if (!owns) return { ok: false, error: 'not_yours' }; p.hidden = true; p.removedBy = b.admin ? 'admin' : 'poster'; return { ok: true }; }
         if (b.action === 'heart') { p.hearts = Math.max(0, p.hearts + (b.delta === -1 ? -1 : 1)); return { ok: true, hearts: p.hearts }; }
         if (b.action === 'hide' || b.action === 'unhide') {
           if (b.admin !== 'preview-admin') return { ok: false, error: 'not_admin' };
-          p.hidden = b.action === 'hide'; return { ok: true, hidden: p.hidden };
+          p.hidden = b.action === 'hide'; p.removedBy = p.hidden ? 'admin' : ''; return { ok: true, hidden: p.hidden };
         }
         return { ok: false, error: 'bad_request' };
       },
@@ -435,6 +453,8 @@
     name_required: 'Please add your name.',
     bad_image: "That photo didn't come through. Please try a different one.",
     too_big: 'That photo is too large. Please try a different one.',
+    not_yours: "This post can only be changed from the phone that shared it. Ask Mark for help.",
+    not_found: 'That post is no longer here.',
     network: "Couldn't connect. Check your internet and try again.",
     server_error: 'Something went wrong on our end. Please try again in a minute.',
   };
@@ -573,14 +593,22 @@
     if (p.hidden) h.disabled = true;
     foot.append(h);
 
+    const canEdit = !p.hidden && (state.admin || (state.mine[p.id] && state.window && state.window.open));
+    const right = document.createElement('div'); right.style.display = 'flex'; right.style.gap = '10px'; right.style.alignItems = 'center';
+    if (canEdit) {
+      const ed = document.createElement('button'); ed.type = 'button'; ed.className = 'edit-btn';
+      ed.textContent = 'Edit'; ed.setAttribute('aria-label', 'Edit this post');
+      ed.onclick = () => openEdit(p);
+      right.append(ed);
+    }
     if (state.admin) {
-      const right = document.createElement('div'); right.style.display = 'flex'; right.style.gap = '10px'; right.style.alignItems = 'center';
-      if (p.hidden) { const t = document.createElement('span'); t.className = 'removed-tag'; t.textContent = 'Removed'; right.append(t); }
+      if (p.hidden) { const t = document.createElement('span'); t.className = 'removed-tag'; t.textContent = p.removedBy === 'poster' ? 'Deleted by poster' : 'Removed'; right.append(t); }
       const a = document.createElement('button'); a.type = 'button'; a.className = 'admin-btn';
       a.textContent = p.hidden ? 'Restore' : 'Remove';
       a.onclick = () => setHidden(p, !p.hidden);
-      right.append(a); foot.append(right);
+      right.append(a);
     }
+    if (right.childNodes.length) foot.append(right);
     body.append(foot);
     card.append(img, body);
     return card;
@@ -636,7 +664,13 @@
   });
 
   function resetShare() {
+    state.editing = null;
     state.imageData = null;
+    $('shareTitle').textContent = 'Share a photo';
+    $('postBtn').textContent = 'Share it';
+    $('deleteBtn').classList.add('hidden'); $('confirmDelete').classList.add('hidden');
+    $('doneTitle').textContent = 'Thank you for sharing!';
+    $('doneText').textContent = 'Your photo is up for the family to see.';
     $('fileInput').value = '';
     $('preview').classList.add('hidden'); $('preview').removeAttribute('src');
     $('pickerBtn').classList.remove('hidden'); $('changePhoto').classList.add('hidden');
@@ -646,6 +680,43 @@
     $('nameInput').value = store.get('name') || '';
   }
   $('shareBtn').addEventListener('click', () => { resetShare(); openOverlay('shareOverlay'); });
+
+  function openEdit(p) {
+    resetShare();
+    state.editing = p;
+    $('shareTitle').textContent = 'Edit your post';
+    $('postBtn').textContent = 'Save changes';
+    $('deleteBtn').classList.remove('hidden');
+    $('nameInput').value = p.name;
+    $('captionInput').value = p.caption;
+    $('count').textContent = p.caption.length + ' / 280';
+    setImg($('preview'), p, 1200);
+    $('preview').classList.remove('hidden'); $('changePhoto').classList.remove('hidden');
+    $('pickerBtn').classList.add('hidden');
+    openOverlay('shareOverlay');
+  }
+
+  $('deleteBtn').addEventListener('click', () => { $('confirmDelete').classList.remove('hidden'); $('deleteBtn').classList.add('hidden'); $('deleteYes').focus(); });
+  $('deleteNo').addEventListener('click', () => { $('confirmDelete').classList.add('hidden'); $('deleteBtn').classList.remove('hidden'); });
+  $('deleteYes').addEventListener('click', async () => {
+    const p = state.editing; if (!p || state.posting) return;
+    state.posting = true; $('deleteYes').disabled = true; $('shareError').textContent = '';
+    try {
+      const r = await apiPost({ action: 'delete', postId: p.id, editKey: state.mine[p.id] || '', admin: state.admin });
+      if (!r.ok) { $('shareError').textContent = errText(r.error); return; }
+      forget(p.id);
+      if (state.admin) { p.hidden = true; p.removedBy = 'admin'; } else state.posts = state.posts.filter(x => x.id !== p.id);
+      render();
+      $('doneTitle').textContent = 'Your post was deleted';
+      $('doneText').textContent = 'You can share a new photo any time.';
+      $('shareForm').classList.add('hidden'); $('shareDone').classList.remove('hidden');
+    } catch (err) {
+      $('shareError').textContent = errText('network');
+    } finally { state.posting = false; $('deleteYes').disabled = false; }
+  });
+
+  function remember(id, key) { state.mine[id] = key; store.set('mine', JSON.stringify(state.mine)); }
+  function forget(id) { delete state.mine[id]; store.set('mine', JSON.stringify(state.mine)); }
   $('pickerBtn').addEventListener('click', () => $('fileInput').click());
   $('changePhoto').addEventListener('click', () => $('fileInput').click());
   $('captionInput').addEventListener('input', () => { $('count').textContent = $('captionInput').value.length + ' / 280'; });
@@ -697,17 +768,31 @@
     const name = $('nameInput').value.trim();
     const caption = $('captionInput').value.trim();
     if (!name) { $('shareError').textContent = errText('name_required'); $('nameInput').focus(); return; }
-    if (!state.imageData) { $('shareError').textContent = 'Please choose a photo first.'; return; }
+    const editing = state.editing;
+    if (!editing && !state.imageData) { $('shareError').textContent = 'Please choose a photo first.'; return; }
     store.set('name', name);
     state.posting = true;
-    const btn = $('postBtn'); btn.disabled = true; btn.textContent = 'Sharing…';
+    const btn = $('postBtn'); const label = btn.textContent;
+    btn.disabled = true; btn.textContent = editing ? 'Saving…' : 'Sharing…';
     $('shareError').textContent = '';
     try {
+      if (editing) {
+        const r = await apiPost({ action: 'edit', postId: editing.id, editKey: state.mine[editing.id] || '', admin: state.admin, code: state.code, name, caption, image: state.imageData || '' });
+        if (!r.ok) { $('shareError').textContent = errText(r.error); return; }
+        const i = state.posts.findIndex(x => x.id === editing.id);
+        if (i >= 0) state.posts[i] = Object.assign({}, state.posts[i], r.post, { hearts: state.posts[i].hearts });
+        render();
+        $('doneTitle').textContent = 'Your changes are saved';
+        $('doneText').textContent = 'Everyone will see the updated post.';
+        $('shareForm').classList.add('hidden'); $('shareDone').classList.remove('hidden');
+        return;
+      }
       const r = await apiPost({ action: 'post', code: state.code, name, caption, image: state.imageData });
       if (!r.ok) {
         if (r.error === 'bad_code') { closeOverlay('shareOverlay'); store.del('code'); state.code = ''; showGate(); return; }
         $('shareError').textContent = errText(r.error); return;
       }
+      if (r.editKey) remember(r.post.id, r.editKey);
       state.posts.unshift(r.post);
       state.filter = 'all';
       render();
@@ -715,7 +800,7 @@
     } catch (err) {
       $('shareError').textContent = errText('network');
     } finally {
-      state.posting = false; btn.disabled = false; btn.textContent = 'Share it';
+      state.posting = false; btn.disabled = false; btn.textContent = label;
     }
   });
 
