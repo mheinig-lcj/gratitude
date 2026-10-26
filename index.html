@@ -126,12 +126,18 @@
     display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px;
     border-radius: 999px; border: 1.5px solid var(--line); background: var(--card); font-size: 17px;
   }
-  .heart svg { width: 22px; height: 22px; }
+  .heart .hg { font-size: 20px; line-height: 1; filter: grayscale(1); opacity: .45; transition: opacity .15s, filter .15s; }
   .heart[aria-pressed=true] { border-color: var(--heart); color: var(--heart); }
-  .heart[aria-pressed=true] svg path { fill: var(--heart); }
+  .heart[aria-pressed=true] .hg { filter: none; opacity: 1; animation: pop .3s ease; }
+  @keyframes pop { 50% { transform: scale(1.3); } }
   .admin-btn { min-height: 44px; padding: 0 14px; border-radius: 999px; border: 1.5px solid #A4161A; color: #A4161A; background: var(--card); font-size: 15px; }
   .edit-btn { min-height: 44px; padding: 0 16px; border-radius: 999px; border: 1.5px solid var(--line); background: var(--card); font-size: 16px; }
   .danger { background: var(--card); color: #A4161A; border: 1.5px solid #A4161A; }
+  .post.is-pending .photo { opacity: .7; }
+  .sending { color: var(--green); font-weight: 650; font-size: 15px; white-space: nowrap; }
+  .failed { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
+  .failed p { margin: 0; color: #A4161A; font-size: 16px; }
+  .failed .row { display: flex; gap: 10px; flex-wrap: wrap; }
   .removed-tag { font-size: 14px; color: #A4161A; font-weight: 700; }
 
   .empty { text-align: center; color: var(--muted); padding: 36px 12px; }
@@ -185,9 +191,15 @@
 
   .toast {
     position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%);
-    background: var(--ink); color: var(--bg); padding: 12px 18px; border-radius: 14px; z-index: 40; font-size: 16px;
-    max-width: calc(100% - 32px); box-shadow: var(--shadow);
+    display: flex; align-items: center; gap: 12px;
+    background: var(--ink); color: var(--bg); padding: 14px 20px; border-radius: 16px; z-index: 40;
+    font-size: 17px; font-weight: 600; width: max-content; max-width: calc(100% - 32px);
+    box-shadow: 0 10px 30px rgba(46,42,38,.28);
+    animation: toastIn .35s cubic-bezier(.2,.9,.3,1.2);
   }
+  .toast .ti { font-size: 22px; line-height: 1; }
+  @keyframes toastIn { from { opacity: 0; transform: translate(-50%, 16px); } }
+  @media (prefers-reduced-motion: reduce) { .toast, .heart[aria-pressed=true] .hg { animation: none; } }
 </style>
 </head>
 <body>
@@ -282,12 +294,7 @@
       </div>
     </form>
 
-    <div id="shareDone" class="done hidden">
-      <div class="big" aria-hidden="true">🧡</div>
-      <h2 id="doneTitle">Thank you for sharing!</h2>
-      <p style="margin:0;color:var(--muted)" id="doneText">Your photo is up for the family to see.</p>
-      <button class="btn block" type="button" data-close>Back to the photos</button>
-    </div>
+
   </div>
 </div>
 
@@ -423,18 +430,48 @@
   // ── Formatting ──
   const fmtDate = (iso) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   const fmtLong = (iso) => new Date(iso).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
-  function imgUrl(p, w) {
-    if (p.src) return p.src;
-    return 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(p.fileId) + '&sz=w' + w;
+  // Photos are saved at 1600px, so one size everywhere lets the browser reuse what it already downloaded.
+  const IMG_W = 1600;
+  const localSrc = {};   // photos this phone just shared, shown from memory so they appear instantly
+  function srcFor(p) { return p.src || localSrc[p.id + '|' + p.fileId] || ''; }
+  function imgUrls(p) {
+    const s = srcFor(p);
+    if (s) return [s];
+    const id = encodeURIComponent(p.fileId);
+    return ['https://lh3.googleusercontent.com/d/' + id + '=w' + IMG_W,
+            'https://drive.google.com/thumbnail?id=' + id + '&sz=w' + IMG_W];
   }
-  function imgFallback(p, w) {
-    return p.src ? '' : 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(p.fileId) + '=w' + w;
+  function imgUrl(p) { return imgUrls(p)[0]; }
+  // Google can briefly refuse photos when many are requested at once, so wait and try again
+  // instead of leaving a blank box.
+  const RETRY_SECONDS = [10, 30, 90];
+  function setImg(el, p) {
+    const urls = imgUrls(p);
+    let i = 0, round = 0;
+    clearTimeout(el._retry);
+    el.onerror = function () {
+      i++;
+      if (i < urls.length) { el.src = urls[i]; return; }
+      if (round >= RETRY_SECONDS.length) return;
+      const wait = RETRY_SECONDS[round++] * 1000;
+      i = 0;
+      el._retry = setTimeout(() => { el.src = urls[0] + (urls[0].startsWith('data:') ? '' : '?r=' + round); }, wait);
+    };
+    el.src = urls[0];
   }
-  function setImg(el, p, w) {
-    el.onerror = null;
-    const fb = imgFallback(p, w);
-    if (fb) el.onerror = function () { el.onerror = null; el.src = fb; };
-    el.src = imgUrl(p, w);
+  // Keep each photo's <img> so a refresh or a heart tap never downloads it again.
+  const imgPool = new Map();
+  function feedImg(p) {
+    const key = p.id + '|' + p.fileId + '|' + (srcFor(p) ? 'local' : 'drive');
+    let el = imgPool.get(key);
+    if (!el) {
+      el = document.createElement('img');
+      el.className = 'photo'; el.loading = 'lazy'; el.decoding = 'async';
+      setImg(el, p);
+      imgPool.set(key, el);
+    }
+    el.alt = p.caption ? p.name + ': ' + p.caption : 'Photo shared by ' + p.name;
+    return el;
   }
   function weeklyIdea() {
     const d = new Date();
@@ -443,9 +480,13 @@
     return WEEKLY_IDEAS[i] || WEEKLY_IDEAS[0];
   }
   let toastTimer;
-  function toast(msg) {
-    const t = $('toast'); t.textContent = msg; t.classList.remove('hidden');
-    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.add('hidden'), 3200);
+  function toast(msg, icon) {
+    const t = $('toast');
+    t.replaceChildren();
+    if (icon) { const i = document.createElement('span'); i.className = 'ti'; i.setAttribute('aria-hidden', 'true'); i.textContent = icon; t.append(i); }
+    const m = document.createElement('span'); m.textContent = msg; t.append(m);
+    t.classList.add('hidden'); void t.offsetWidth; t.classList.remove('hidden');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.add('hidden'), icon ? 4000 : 3200);
   }
   const ERRORS = {
     bad_code: "That code didn't work. Check the spelling and try again.",
@@ -485,11 +526,11 @@
       return false;
     }
     if (state.admin && !r.admin) { store.del('admin'); state.admin = ''; }
-    state.posts = r.posts || [];
+    state.posts = state.posts.filter(p => p.pending).concat(r.posts || []);
     state.window = r.window;
     const hero = $('hero');
     if (r.headerSrc || r.headerFileId) {
-      if (!hero.dataset.set) { setImg(hero, { src: r.headerSrc, fileId: r.headerFileId }, 1600); hero.dataset.set = '1'; }
+      if (!hero.dataset.set) { setImg(hero, { id: 'header', src: r.headerSrc, fileId: r.headerFileId }); hero.dataset.set = '1'; }
       hero.classList.remove('hidden');
     } else hero.classList.add('hidden');
     showApp();
@@ -548,7 +589,6 @@
     list.forEach(([k, label]) => wrap.append(make(k, label)));
   }
 
-  const HEART = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7.5-4.6-9.6-9.3C.9 8.3 3 4.5 6.7 4.5c2.1 0 3.6 1.2 4.3 2.4.7-1.2 2.2-2.4 4.3-2.4 3.7 0 5.8 3.8 4.3 7.2C19.5 16.4 12 21 12 21z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>';
 
   function renderFeed() {
     const feed = $('feed');
@@ -568,14 +608,15 @@
     const card = document.createElement('article');
     card.className = 'post' + (p.hidden ? ' is-hidden' : '');
 
-    const img = document.createElement('img');
-    img.className = 'photo'; img.loading = 'lazy'; img.alt = p.caption ? p.name + ': ' + p.caption : 'Photo shared by ' + p.name;
-    setImg(img, p, 1200);
+    const img = feedImg(p);
 
     const body = document.createElement('div'); body.className = 'body';
     const who = document.createElement('div'); who.className = 'who';
     const n = document.createElement('div'); n.className = 'name'; n.textContent = p.name;
-    const d = document.createElement('div'); d.className = 'when'; d.textContent = fmtDate(p.posted);
+    const d = document.createElement('div');
+    if (p.pending) { d.className = 'sending'; if (p.failed) d.style.color = '#A4161A'; d.textContent = p.failed ? 'Not shared yet' : 'Sharing…'; }
+    else { d.className = 'when'; d.textContent = fmtDate(p.posted); }
+    if (p.pending) card.classList.add('is-pending');
     who.append(n, d); body.append(who);
 
     if (p.caption) {
@@ -584,16 +625,24 @@
 
     const foot = document.createElement('div'); foot.className = 'foot';
     const h = document.createElement('button'); h.type = 'button'; h.className = 'heart';
-    const on = state.hearted.has(p.id);
-    h.setAttribute('aria-pressed', String(on));
-    h.setAttribute('aria-label', (on ? 'Remove heart' : 'Send a heart') + ', ' + p.hearts + ' so far');
-    h.innerHTML = HEART;
-    const hc = document.createElement('span'); hc.textContent = String(p.hearts); h.append(hc);
-    h.onclick = () => toggleHeart(p);
-    if (p.hidden) h.disabled = true;
+    const hg = document.createElement('span'); hg.className = 'hg'; hg.setAttribute('aria-hidden', 'true'); hg.textContent = '\u2764\uFE0F';
+    const hc = document.createElement('span'); h.append(hg, hc);
+    paintHeart(h, p);
+    h.onclick = () => toggleHeart(p, h);
+    if (p.hidden || p.pending) h.disabled = true;
+    if (p.failed) {
+      const f = document.createElement('div'); f.className = 'failed';
+      const msg = document.createElement('p'); msg.textContent = p.failed;
+      const row = document.createElement('div'); row.className = 'row';
+      const again = document.createElement('button'); again.type = 'button'; again.className = 'btn small'; again.textContent = 'Try again';
+      again.onclick = () => sendPost(p);
+      const drop = document.createElement('button'); drop.type = 'button'; drop.className = 'btn small quiet'; drop.textContent = 'Remove';
+      drop.onclick = () => { state.posts = state.posts.filter(x => x !== p); render(); };
+      row.append(again, drop); f.append(msg, row); body.append(f);
+    }
     foot.append(h);
 
-    const canEdit = !p.hidden && (state.admin || (state.mine[p.id] && state.window && state.window.open));
+    const canEdit = !p.hidden && !p.pending && (state.admin || (state.mine[p.id] && state.window && state.window.open));
     const right = document.createElement('div'); right.style.display = 'flex'; right.style.gap = '10px'; right.style.alignItems = 'center';
     if (canEdit) {
       const ed = document.createElement('button'); ed.type = 'button'; ed.className = 'edit-btn';
@@ -614,17 +663,24 @@
     return card;
   }
 
-  async function toggleHeart(p) {
+  function paintHeart(h, p) {
+    const on = state.hearted.has(p.id);
+    h.setAttribute('aria-pressed', String(on));
+    h.setAttribute('aria-label', (on ? 'Remove heart' : 'Send a heart') + ', ' + p.hearts + ' so far');
+    h.lastChild.textContent = String(p.hearts);
+  }
+
+  async function toggleHeart(p, h) {
     const on = state.hearted.has(p.id);
     const delta = on ? -1 : 1;
     on ? state.hearted.delete(p.id) : state.hearted.add(p.id);
     p.hearts = Math.max(0, p.hearts + delta);
     store.set('hearted', JSON.stringify([...state.hearted]));
-    renderFeed();
+    paintHeart(h, p);
     try {
       const r = await apiPost({ action: 'heart', postId: p.id, delta, code: state.code, admin: state.admin });
-      if (r.ok) { p.hearts = r.hearts; renderFeed(); }
-    } catch (e) { /* the heart stays on this phone; the count will settle on the next refresh */ }
+      if (r.ok) { p.hearts = r.hearts; paintHeart(h, p); }
+    } catch (e) { /* the heart stays on this phone; the count settles on the next refresh */ }
   }
 
   async function setHidden(p, hide) {
@@ -669,14 +725,13 @@
     $('shareTitle').textContent = 'Share a photo';
     $('postBtn').textContent = 'Share it';
     $('deleteBtn').classList.add('hidden'); $('confirmDelete').classList.add('hidden');
-    $('doneTitle').textContent = 'Thank you for sharing!';
-    $('doneText').textContent = 'Your photo is up for the family to see.';
+
     $('fileInput').value = '';
     $('preview').classList.add('hidden'); $('preview').removeAttribute('src');
     $('pickerBtn').classList.remove('hidden'); $('changePhoto').classList.add('hidden');
     $('captionInput').value = ''; $('count').textContent = '0 / 280';
     $('shareError').textContent = '';
-    $('shareForm').classList.remove('hidden'); $('shareDone').classList.add('hidden');
+
     $('nameInput').value = store.get('name') || '';
   }
   $('shareBtn').addEventListener('click', () => { resetShare(); openOverlay('shareOverlay'); });
@@ -690,7 +745,7 @@
     $('nameInput').value = p.name;
     $('captionInput').value = p.caption;
     $('count').textContent = p.caption.length + ' / 280';
-    setImg($('preview'), p, 1200);
+    setImg($('preview'), p);
     $('preview').classList.remove('hidden'); $('changePhoto').classList.remove('hidden');
     $('pickerBtn').classList.add('hidden');
     openOverlay('shareOverlay');
@@ -707,12 +762,40 @@
       forget(p.id);
       if (state.admin) { p.hidden = true; p.removedBy = 'admin'; } else state.posts = state.posts.filter(x => x.id !== p.id);
       render();
-      $('doneTitle').textContent = 'Your post was deleted';
-      $('doneText').textContent = 'You can share a new photo any time.';
-      $('shareForm').classList.add('hidden'); $('shareDone').classList.remove('hidden');
+      closeOverlay('shareOverlay');
+      toast('Your post was deleted.', '🗑️');
     } catch (err) {
       $('shareError').textContent = errText('network');
     } finally { state.posting = false; $('deleteYes').disabled = false; }
+  });
+
+  async function sendPost(temp) {
+    temp.failed = ''; renderFeed();
+    let r;
+    try {
+      r = await apiPost({ action: 'post', code: state.code, name: temp.name, caption: temp.caption, image: temp.src });
+    } catch (err) {
+      r = { ok: false, error: 'network' };
+    }
+    const i = state.posts.indexOf(temp);
+    if (i < 0) return;   // they removed it while it was sending
+    if (!r.ok) {
+      if (r.error === 'bad_code') { store.del('code'); state.code = ''; showGate(); return; }
+      temp.failed = errText(r.error);
+      renderFeed();
+      toast("Your photo didn't send. Tap Try again.", '⚠️');
+      return;
+    }
+    if (r.editKey) remember(r.post.id, r.editKey);
+    localSrc[r.post.id + '|' + r.post.fileId] = temp.src;
+    state.posts[i] = r.post;
+    render();
+    toast('Thank you, ' + temp.name.split(' ')[0] + '! Your photo is shared.', '🧡');
+  }
+
+  // Warn before leaving the page while a photo is still sending.
+  window.addEventListener('beforeunload', (e) => {
+    if (state.posts.some(p => p.pending && !p.failed)) { e.preventDefault(); e.returnValue = ''; }
   });
 
   function remember(id, key) { state.mine[id] = key; store.set('mine', JSON.stringify(state.mine)); }
@@ -779,24 +862,23 @@
       if (editing) {
         const r = await apiPost({ action: 'edit', postId: editing.id, editKey: state.mine[editing.id] || '', admin: state.admin, code: state.code, name, caption, image: state.imageData || '' });
         if (!r.ok) { $('shareError').textContent = errText(r.error); return; }
+        if (state.imageData) localSrc[r.post.id + '|' + r.post.fileId] = state.imageData;
         const i = state.posts.findIndex(x => x.id === editing.id);
         if (i >= 0) state.posts[i] = Object.assign({}, state.posts[i], r.post, { hearts: state.posts[i].hearts });
         render();
-        $('doneTitle').textContent = 'Your changes are saved';
-        $('doneText').textContent = 'Everyone will see the updated post.';
-        $('shareForm').classList.add('hidden'); $('shareDone').classList.remove('hidden');
+        closeOverlay('shareOverlay');
+        toast('Your changes are saved.', '✏️');
         return;
       }
-      const r = await apiPost({ action: 'post', code: state.code, name, caption, image: state.imageData });
-      if (!r.ok) {
-        if (r.error === 'bad_code') { closeOverlay('shareOverlay'); store.del('code'); state.code = ''; showGate(); return; }
-        $('shareError').textContent = errText(r.error); return;
-      }
-      if (r.editKey) remember(r.post.id, r.editKey);
-      state.posts.unshift(r.post);
+      // Show the post right away; it finishes saving in the background.
+      const temp = { id: 'sending-' + Date.now(), posted: new Date().toISOString(), name, caption,
+                     src: state.imageData, fileId: '', hearts: 0, hidden: false, pending: true, failed: '' };
+      state.posts.unshift(temp);
       state.filter = 'all';
       render();
-      $('shareForm').classList.add('hidden'); $('shareDone').classList.remove('hidden');
+      closeOverlay('shareOverlay');
+      $('feed').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+      sendPost(temp);
     } catch (err) {
       $('shareError').textContent = errText('network');
     } finally {
@@ -853,14 +935,14 @@
       if (!first) { $(back).style.opacity = 1; $(show.front).style.opacity = 0; show.front = back; }
     };
     el.onload = reveal;
-    setImg(el, p, 2000);
+    setImg(el, p);
     $('slideName').textContent = p.name;
     $('slideCap').textContent = p.caption;
     $('slideDate').textContent = fmtLong(p.posted);
     $('slideCount').textContent = (show.i + 1) + ' of ' + show.list.length;
     // Preload the next one
     const nx = show.list[(show.i + 1) % show.list.length];
-    if (nx) { const pre = new Image(); pre.src = imgUrl(nx, 2000); }
+    if (nx) { const pre = new Image(); pre.src = imgUrl(nx); }
   }
   function step(d) {
     show.i = (show.i + d + show.list.length) % show.list.length;
