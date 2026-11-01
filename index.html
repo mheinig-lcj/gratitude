@@ -31,6 +31,9 @@
     'A moment from this month you want to remember' // Nov 22–30
   ];
   const SLIDE_SECONDS = 8;
+
+  // Bump this whenever you change this file.
+  const PAGE_VERSION = '7 · Nov 1';
   // ────────────────────────────────────────
 </script>
 <style>
@@ -382,7 +385,7 @@
       <button type="button" data-theme-choice="dark">Dark</button>
     </div>
   </div>
-  <p class="ver">Version 6 · Oct 27</p>
+  <p class="ver" id="ver"></p>
 </main>
 
 <!-- Share sheet -->
@@ -530,7 +533,7 @@
         await wait(250);
         const admin = p.admin === 'preview-admin';
         if (!admin && !okCode(p.code)) return { ok: false, error: 'bad_code' };
-        return { ok: true, admin, window: win, delta: !!p.since, removed: admin ? [] : posts.filter(x => x.hidden).map(x => x.id), syncedAt: new Date().toISOString(), headerSrc: window.PREVIEW_HEADER || '', posts: posts.filter(x => admin || !x.hidden).map(x => Object.assign({}, x)) };
+        return { ok: true, admin, window: win, scriptVersion: 'preview', delta: !!p.since, removed: admin ? [] : posts.filter(x => x.hidden).map(x => x.id), syncedAt: new Date().toISOString(), headerSrc: window.PREVIEW_HEADER || '', posts: posts.filter(x => admin || !x.hidden).map(x => Object.assign({}, x)) };
       },
       async post(b) {
         await wait(b.action === 'post' ? 900 : 200);
@@ -655,7 +658,7 @@
     if (!state.syncedAt) return;
     const posts = state.posts.filter(p => !p.pending);
     const data = { v: 1, admin: !!state.admin, syncedAt: state.syncedAt, fullAt: state.fullAt,
-                   window: state.window, header: state.header, posts };
+                   window: state.window, header: state.header, scriptVersion: state.scriptVersion, posts };
     try { localStorage.setItem('gau_feed', JSON.stringify(data)); }
     catch (e) { store.del('feed'); }
   }
@@ -672,7 +675,7 @@
     if (!c || c.v !== 1 || c.admin !== !!state.admin) return false;
     state.posts = c.posts || [];
     state.window = c.window; state.header = c.header;
-    state.syncedAt = c.syncedAt; state.fullAt = c.fullAt;
+    state.syncedAt = c.syncedAt; state.fullAt = c.fullAt; state.scriptVersion = c.scriptVersion || '';
     applyHeader(state.header);
     showApp(); render();
     return true;
@@ -715,6 +718,7 @@
       state.fullAt = r.syncedAt;
     }
     state.syncedAt = r.syncedAt;
+    state.scriptVersion = r.scriptVersion || '';
     state.window = r.window;
     state.header = { src: r.headerSrc || '', fileId: r.headerFileId || '' };
     applyHeader(state.header);
@@ -744,6 +748,7 @@
 
     renderChips();
     renderFeed();
+    $('ver').textContent = 'Page ' + PAGE_VERSION + ' · Script ' + (state.scriptVersion || 'older than 7');
     saveCache();
   }
 
